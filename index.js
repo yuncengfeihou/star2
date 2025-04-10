@@ -10,6 +10,8 @@ import {
     doNewChat,
     is_send_press,
     isChatSaving,
+    eventSource,
+    event_types,
     this_chid
 } from "../../../../script.js";
 import { selected_group, is_group_generating } from "../../../group-chats.js";
