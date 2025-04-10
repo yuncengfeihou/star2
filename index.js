@@ -1385,133 +1385,99 @@ import {
     }
 
 
-    // --- Plugin Initialization ---
+        // --- Plugin Initialization ---
     jQuery(async () => {
         console.log(logPrefix, "Loading...");
         initializeSettings();
 
         // 1. Inject into Extensions Page (Plugin Overview)
         try {
+            // *** FIX: Revert path to correct format ***
             const settingsHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'settings_display');
-            // Using #extensions_settings as primary, fallback #translation_container
-             let $container = $('#extensions_settings');
+            let $container = $('#extensions_settings');
              if (!$container.length) {
-                $container = $('#translation_container'); // Use translation as fallback
+                $container = $('#translation_container');
                  console.warn(logPrefix, "Using #translation_container as fallback for settings UI.");
              }
+
              if ($container.length) {
-                 // Ensure the container for *this* plugin's settings exists within the template
-                 // Assuming settings_display.html contains `<div id="my-favorites-plugin-settings">...</div>`
-                 // And we append our dynamic content area inside that.
-                 $container.append(settingsHtml); // Append the template first
-                 // Now find the specific area *within* the appended template
-                 if ($(`#${settingsContainerId}`).length === 0) {
-                    // If the specific container isn't in the template, create it
-                    $('#my-favorites-plugin-settings').append(`<div id="${settingsContainerId}">Loading...</div>`); // Adjust parent selector if needed
-                 }
-                console.log(logPrefix, `Added settings UI container to ${$container.attr('id')}`);
-                renderPluginPage(currentPluginPagePage); // Initial render of the overview list
-                setupPluginPageEventDelegation(); // Setup clicks for the list
+                 // *** FIX: Simplify injection - Append the template directly ***
+                 // ASSUMPTION: templates/settings_display.html contains <div id="favorites-plugin-settings-area"></div>
+                 $container.append(settingsHtml);
+                 console.log(logPrefix, `Appended settings template to ${$container.attr('id')}`);
+
+                 // Now renderPluginPage should find #settingsContainerId within the appended HTML
+                 renderPluginPage(currentPluginPagePage); // Initial render of the overview list
+                 setupPluginPageEventDelegation(); // Setup clicks for the list
              } else {
                  console.error(logPrefix, "Could not find container (#extensions_settings or #translation_container) for settings UI.");
              }
         } catch (error) {
             console.error(logPrefix, "Failed to load or inject settings_display.html:", error);
+            toastr.error("无法加载插件设置界面。"); // Notify user
         }
 
         // 2. Inject Sidebar Button
         try {
-            // Make sure the template file exists and is correct
-            // Templates should be in public/extensions/third-party/my-favorites-plugin/templates/
-            const sidebarButtonHtml = await renderExtensionTemplateAsync(pluginFolderName, 'sidebar_button'); // Use folder name directly
-            // Append to a reliable element like the user avatar container or similar sidebar area
-             $('#profile_details').after(sidebarButtonHtml); // Example: Append after profile details
-            console.log(logPrefix, "Added sidebar button.");
-
-            // Add direct click listener for the sidebar button
-            $(document).on('click', `#${sidebarButtonId}`, openFavoritesPopup);
-
+            // *** FIX: Revert path to correct format ***
+            const sidebarButtonHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'sidebar_button');
+            // *** FIX: Revert target selector and method to original working version ***
+            const $buttonContainer = $('#data_bank_wand_container'); // Use the original target
+             if ($buttonContainer.length) {
+                 $buttonContainer.append(sidebarButtonHtml);
+                 console.log(logPrefix, "Added sidebar button to #data_bank_wand_container");
+                 // Add direct click listener for the sidebar button (moved inside success block)
+                 $(document).off('click', `#${sidebarButtonId}`).on('click', `#${sidebarButtonId}`, openFavoritesPopup); // Ensure handler is attached only once
+             } else {
+                 console.error(logPrefix, "Could not find container #data_bank_wand_container for sidebar button.");
+                  toastr.error("无法找到侧边栏按钮的注入位置。");
+             }
         } catch (error) {
             console.error(logPrefix, "Failed to load or inject sidebar_button.html:", error);
-             // Provide feedback if the button fails to load
              toastr.error("无法加载收藏夹侧边栏按钮。");
         }
 
-        // 3. Setup Message Button Injection & Event Delegation
+        // 3. Setup Message Button Injection & Event Delegation (Keep as is)
         injectOrUpdateFavoriteIcons(); // Initial injection for existing messages
-        $(document).on('click', favIconSelector, handleFavoriteToggle); // Use event delegation for ALL icons
+        // *** FIX: Ensure event handler is attached only once using .off().on() pattern ***
+        $(document).off('click', favIconSelector).on('click', favIconSelector, handleFavoriteToggle);
         console.log(logPrefix, `Set up event delegation for ${favIconSelector}`);
 
 
-        // 4. Listen for SillyTavern events
-        // Update icons when chat changes or messages are added/loaded
+        // 4. Listen for SillyTavern events (Keep as is)
         eventSource.on(event_types.CHAT_UPDATED, () => {
-             if (!isInPreviewMode) { // Don't update icons if in preview
-                 injectOrUpdateFavoriteIcons();
-             }
+             if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
-         eventSource.on(event_types.MESSAGE_SENT, () => { // Also after sending
-             if (!isInPreviewMode) {
-                 injectOrUpdateFavoriteIcons();
-             }
+        eventSource.on(event_types.MESSAGE_SENT, () => {
+             if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
-        eventSource.on(event_types.MESSAGE_RECEIVED, () => { // After receiving
-             if (!isInPreviewMode) {
-                 injectOrUpdateFavoriteIcons();
-             }
+        eventSource.on(event_types.MESSAGE_RECEIVED, () => {
+             if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
-         eventSource.on(event_types.MORE_MESSAGES_LOADED, () => { // After showing more
-             if (!isInPreviewMode) {
-                 injectOrUpdateFavoriteIcons();
-             }
+        eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
+             if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
-
-        // Handle leaving preview mode
         eventSource.on(event_types.CHAT_CHANGED, (newChatId) => {
-            if (isInPreviewMode) {
-                 // Check if the new chat ID is DIFFERENT from the one we stored as the preview chat
-                 // This requires knowing which preview chat we were in. Let's enhance state.
-                 let currentlyPreviewing = null;
-                 const settings = getPluginSettings();
-                 const previewMap = settings[previewChatMappingKey] || {};
-                 // Find which original chat maps to the chat we are LEAVING (the preview chat)
-                 for (const originalId in previewMap) {
-                     if (previewMap[originalId] === getCurrentChatId()) { // Check against the ID *before* the change completes? Risky.
-                         // Let's assume CHAT_CHANGED fires AFTER context is updated for newChatId.
-                         // We need to know the ID of the preview chat we *were* in. Store it globally maybe?
-                         // Let's try storing the preview chat ID when entering:
-                         // Add: let activePreviewChatId = null;
-                         // In handlePreviewClick success block: activePreviewChatId = targetPreviewChatId;
-                         // Then here: if (isInPreviewMode && newChatId !== activePreviewChatId) { ... }
-
-                         // Simpler approach: If we *were* in preview mode, and the chat changes *at all*, exit preview mode.
-                         console.log(logPrefix, `Chat changed to ${newChatId} while in preview mode. Exiting preview...`);
-                         toggleChatInteraction(false); // Re-enable UI
-                         isInPreviewMode = false;
-                         originalContextBeforePreview = null; // Clear stored context
-                         // activePreviewChatId = null; // Reset if using that state variable
-                     }
-                 }
-            }
-             // Update icons for the new chat (unless the new chat IS a preview chat)
+            // ... (Keep existing preview exit logic) ...
+             if (isInPreviewMode) {
+                 console.log(logPrefix, `Chat changed to ${newChatId} while in preview mode. Exiting preview...`);
+                 toggleChatInteraction(false);
+                 isInPreviewMode = false;
+                 originalContextBeforePreview = null;
+             }
              const settings = getPluginSettings();
              const previewMap = settings[previewChatMappingKey] || {};
              const isNewChatAPreview = Object.values(previewMap).includes(newChatId);
-
              if (!isNewChatAPreview) {
-                 injectOrUpdateFavoriteIcons();
-             } else {
-                 // If we somehow land in a preview chat without isInPreviewMode being true, disable interactions
-                 console.warn(logPrefix, `Landed in a preview chat (${newChatId}) but not in preview mode. Disabling interactions.`);
+                 injectOrUpdateFavoriteIcons(); // Update icons for the new non-preview chat
+             } else if (!isInPreviewMode) { // Landed in preview without flag set? Correct state.
+                 console.warn(logPrefix, `Landed in a preview chat (${newChatId}) but not in preview mode. Correcting state.`);
                  toggleChatInteraction(true);
-                 isInPreviewMode = true; // Correct the state
+                 isInPreviewMode = true;
              }
         });
 
-        // Refresh plugin page if settings change? Might be overkill.
-        // eventSource.on(event_types.SETTINGS_UPDATED, renderPluginPage);
-
-        console.log(logPrefix, "Loaded successfully.");
+        console.log(logPrefix, "Loaded successfully (with UI injection fixes).");
     });
 
 })(); // End IIFE
