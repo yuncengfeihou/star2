@@ -150,21 +150,61 @@ function handleFavoriteToggle(event) {
     const messageBlock = target.closest('.mes');
     const messageId = messageBlock.attr('mesid');
     
+    console.log(`[${pluginName}] 点击收藏按钮，消息ID:${messageId}, 类型:${typeof messageId}`);
+    
     // 查找完整消息
     const context = getContext();
-    const message = context.chat.find(msg => String(msg.id || msg.index) === messageId); 
+    
+    // 调试日志
+    console.log(`[${pluginName}] 当前聊天消息数量:${context.chat.length}`);
+    console.log(`[${pluginName}] 当前聊天消息ID列表:`, context.chat.map(msg => msg.id !== undefined ? msg.id : msg.index));
+    
+    // 更精确的查找逻辑
+    const message = context.chat.find(msg => {
+        // 获取消息ID（优先使用id，然后是index）
+        const msgId = msg.id !== undefined ? msg.id : (msg.index !== undefined ? msg.index : null);
+        
+        // 转为字符串以便比较
+        const strMsgId = String(msgId);
+        const strTargetId = String(messageId);
+        
+        // 检查是否匹配
+        return strMsgId === strTargetId;
+    });
     
     if (!message) {
         console.error(`[${pluginName}] 无法找到消息 ID:${messageId}`);
+        console.log(`[${pluginName}] 消息ID类型:${typeof messageId}`);
+        console.log(`[${pluginName}] 尝试更宽松的查找逻辑...`);
+        
+        // 尝试宽松查找 - 使用数值比较
+        const numMessageId = Number(messageId);
+        const messageByNumber = context.chat.find(msg => {
+            const numMsgId = Number(msg.id !== undefined ? msg.id : msg.index);
+            return !isNaN(numMsgId) && numMsgId === numMessageId;
+        });
+        
+        if (messageByNumber) {
+            console.log(`[${pluginName}] 通过数值比较找到了消息!`);
+            handleFavoriteAction(target, messageByNumber);
+            return;
+        }
+        
+        // 仍然找不到
         toastr.error('无法找到该消息');
         return;
     }
     
+    handleFavoriteAction(target, message);
+}
+
+// 处理收藏/取消收藏动作
+function handleFavoriteAction(target, message) {
     const isFavorite = target.hasClass('favorite-marked');
     
     if (isFavorite) {
         // 取消收藏
-        const success = removeFavoriteByMessageId(messageId);
+        const success = removeFavoriteByMessageId(String(message.id || message.index));
         if (success) {
             target.removeClass('favorite-marked');
             toastr.info('已取消收藏该消息');
