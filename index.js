@@ -5,14 +5,14 @@ import {
     saveSettingsDebounced, 
     systemUserName, 
     chat, 
-    callPopup,
     clearChat,
     doNewChat,
     is_send_press,
     isChatSaving,
+    this_chid,
+    callPopup,
     eventSource,
-    event_types,
-    this_chid
+    event_types
 } from "../../../../script.js";
 import { selected_group, is_group_generating } from "../../../group-chats.js";
 import { openCharacterChat } from "../../../../script.js";
@@ -20,7 +20,7 @@ import { openGroupChat } from "../../../group-chats.js";
 import { renameChat } from "../../../../script.js";
 
 // 插件名称
-const PLUGIN_NAME = 'star2';
+const PLUGIN_NAME = 'favorites-plugin';
 
 /**
  * 初始化插件的必要数据结构
@@ -315,20 +315,20 @@ function renderFavoriteItem(favItem, index) {
         : `<div class="avatar default"></div>`;
 
     const nameClass = favItem.isUser ? 'user-name' : (favItem.isSystem ? 'system-name' : 'char-name');
-    const noteText = favItem.note ? `<div class="favorite-note"><strong>备注:</strong> ${favItem.note}</div>` : '';
+    const noteHtml = favItem.note ? `<div class="fav-note"><strong>备注:</strong> ${favItem.note}</div>` : '';
     
+    // 使用用户CSS类名
     return `
         <div class="favorite-item" data-id="${favItem.id}" data-message-id="${favItem.messageId}" data-index="${index}">
-            <div class="favorite-header">
-                <div class="favorite-avatar">${avatarImg}</div>
-                <div class="favorite-name ${nameClass}">${favItem.name}</div>
-                <div class="favorite-actions">
-                    <button class="btn_edit_note" title="编辑备注"><i class="fa-solid fa-pencil"></i></button>
-                    <button class="btn_delete_favorite" title="删除收藏"><i class="fa-solid fa-trash"></i></button>
-                </div>
+            <div class="fav-meta">
+                <span class="fav-name ${nameClass}">${favItem.name}</span>
             </div>
-            <div class="favorite-content">${favItem.messageText}</div>
-            ${noteText}
+            ${noteHtml}
+            <div class="fav-preview">${favItem.messageText}</div>
+            <div class="fav-actions">
+                <i class="fa-solid fa-pencil btn_edit_note" title="编辑备注"></i>
+                <i class="fa-solid fa-trash btn_delete_favorite" title="删除收藏"></i>
+            </div>
         </div>
     `;
 }
@@ -368,6 +368,7 @@ function updateFavoritesPopup() {
                 </button>
             </div>
         </div>
+        <div class="favorites-divider"></div>
     `);
 
     // 添加收藏内容
@@ -375,7 +376,7 @@ function updateFavoritesPopup() {
     container.append(favoritesList);
 
     if (favorites.items.length === 0) {
-        favoritesList.append('<div class="no-favorites">没有收藏的消息</div>');
+        favoritesList.append('<div class="favorites-empty">没有收藏的消息</div>');
     } else {
         // 按时间倒序排列
         const sortedFavorites = [...favorites.items].sort((a, b) => b.timestamp - a.timestamp);
@@ -413,118 +414,6 @@ function updateFavoritesPopup() {
         await handleEditNote(favoriteId);
         updateFavoritesPopup();
     });
-
-    // 弹窗样式
-    $('#favorites_popup').css({
-        display: 'flex',
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: '70%',
-        maxWidth: '800px',
-        height: '80%',
-        maxHeight: '600px',
-        backgroundColor: 'var(--SmartThemeShadowColor)',
-        zIndex: 1001,
-        border: '1px solid var(--SmartThemeBorderColor)',
-        borderRadius: '10px',
-        flexDirection: 'column',
-        padding: '10px'
-    });
-
-    $('#favorites_popup_content').css({
-        overflow: 'auto',
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column'
-    });
-
-    $('.favorites-header').css({
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '15px',
-        padding: '5px',
-        borderBottom: '1px solid var(--SmartThemeBorderColor)'
-    });
-
-    $('.favorites-actions').css({
-        display: 'flex',
-        gap: '5px'
-    });
-
-    $('.favorites-list').css({
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        overflow: 'auto',
-        flex: 1
-    });
-
-    $('.favorite-item').css({
-        backgroundColor: 'var(--SmartThemeBlurTintColor)',
-        border: '1px solid var(--SmartThemeBorderColor)',
-        borderRadius: '5px',
-        padding: '10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '5px'
-    });
-
-    $('.favorite-header').css({
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px'
-    });
-
-    $('.favorite-avatar').css({
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        overflow: 'hidden'
-    });
-
-    $('.favorite-avatar img').css({
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover'
-    });
-
-    $('.favorite-name').css({
-        flex: 1,
-        fontWeight: 'bold'
-    });
-
-    $('.favorite-actions').css({
-        display: 'flex',
-        gap: '5px'
-    });
-
-    $('.favorite-content').css({
-        padding: '5px',
-        backgroundColor: 'rgba(0,0,0,0.1)',
-        borderRadius: '5px'
-    });
-
-    $('.favorite-note').css({
-        fontStyle: 'italic',
-        padding: '5px',
-        backgroundColor: 'rgba(255,255,0,0.1)',
-        borderRadius: '5px'
-    });
-
-    $('.user-name').css({
-        color: 'var(--SmartThemeUserMesColor)'
-    });
-
-    $('.char-name').css({
-        color: 'var(--SmartThemeCharMesColor)'
-    });
-
-    $('.system-name').css({
-        color: 'var(--SmartThemeSystemMesColor)'
-    });
 }
 
 /**
@@ -533,8 +422,35 @@ function updateFavoritesPopup() {
 function showFavoritesPopup() {
     // 确保弹窗容器存在
     if (!$('#favorites_popup').length) {
-        $('body').append('<div id="favorites_popup"><div id="favorites_popup_content"></div></div>');
+        $('body').append(`
+            <div id="favorites_popup" class="draggable-handle">
+                <div id="favorites_popup_content" class="favorites-popup-content"></div>
+            </div>
+        `);
+
+        // 使弹窗可拖动
+        $('#favorites_popup').draggable({
+            handle: '.draggable-handle',
+            containment: 'window' // 限制在窗口内拖动
+        });
     }
+
+    // 重置弹窗位置到屏幕中央
+    $('#favorites_popup').css({
+        'position': 'fixed',
+        'top': '50%',
+        'left': '50%',
+        'transform': 'translate(-50%, -50%)',
+        'width': '70%',
+        'max-width': '800px',
+        'max-height': '80vh',
+        'overflow': 'hidden',
+        'z-index': 1001,
+        'border-radius': '10px',
+        'background-color': 'var(--SmartThemeBGColor)',
+        'border': '1px solid var(--SmartThemeBorderColor)',
+        'box-shadow': '0 0 10px rgba(0,0,0,0.5)'
+    });
 
     // 更新弹窗内容
     updateFavoritesPopup();
@@ -715,7 +631,7 @@ async function fillPreviewChatWithFavorites() {
                 
                 // 如果有备注，在消息末尾添加
                 if (favItem.note) {
-                    messageCopy.mes += `\n\n<div class="favorite-note-preview" style="margin-top:10px;padding:5px;background:rgba(255,255,0,0.1);border-radius:5px;"><strong>备注:</strong> ${favItem.note}</div>`;
+                    messageCopy.mes += `\n\n<div class="fav-note"><strong>备注:</strong> ${favItem.note}</div>`;
                 }
                 
                 messagesToFill.push({
@@ -863,29 +779,11 @@ async function handleClearInvalidFavorites() {
 
 // 初始化插件
 jQuery(async () => {
-    // 加载自定义CSS
-    const customCSS = `
-        .favorite-toggle {
-            color: var(--SmartThemeQuietColor);
-        }
-        
-        .favorite-toggle.active {
-            color: gold;
-        }
-        
-        .favorite-toggle:hover {
-            filter: brightness(1.2);
-        }
-        
-        #favorites_popup {
-            display: none;
-        }
-    `;
-    
-    $('head').append(`<style id="favorites_plugin_style">${customCSS}</style>`);
-    
-    // 注入快捷按钮
     try {
+        // 加载CSS文件
+        $('head').append(`<link rel="stylesheet" type="text/css" href="../extensions/third-party/${PLUGIN_NAME}/style.css">`);
+        
+        // 注入快捷按钮
         const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${PLUGIN_NAME}`, 'input_button');
         $('#data_bank_wand_container').append(inputButtonHtml);
         
