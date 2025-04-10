@@ -40,9 +40,6 @@ import {
     timestampToMoment,
 } from '../../../utils.js';
 
-// Import from i18n (as requested)
-import { t } from '../../../i18n.js';
-
 import { power_user } from '../../../power-user.js';
 
 // Import from group chats (as needed for checks)
