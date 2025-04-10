@@ -571,13 +571,12 @@ async function handlePreviewButtonClick() {
             extension_settings[PLUGIN_NAME].previewChats[previewKey] = newPreviewChatId;
             saveSettingsDebounced();
             
-            // 重命名聊天
-            await renameChat("<预览聊天>");
-            console.log(`[${PLUGIN_NAME}] 聊天已重命名为<预览聊天>`);
+            // 首次预览不立即重命名，等填充消息后再重命名
+            console.log(`[${PLUGIN_NAME}] 首次预览，将在填充消息后重命名聊天`);
         }
         
         // 延迟一下确保聊天加载完成
-        const loadDelay = isFirstPreview ? 2000 : 1000; // 首次预览使用更长的延迟
+        const loadDelay = isFirstPreview ? 2000 : 1000;
         console.log(`[${PLUGIN_NAME}] 等待 ${loadDelay}ms 确保聊天加载完成...`);
         await new Promise(resolve => setTimeout(resolve, loadDelay));
         
@@ -626,6 +625,8 @@ async function handlePreviewButtonClick() {
         
         // 填充消息到聊天
         let addedCount = 0;
+        let hasRenamed = !isFirstPreview; // 如果不是首次预览，就不需要重命名
+        
         for (const item of messagesToFill) {
             try {
                 const message = item.message;
@@ -639,15 +640,23 @@ async function handlePreviewButtonClick() {
                     forceId: mesid
                 });
                 
-                // 首条消息后添加更长延迟，特别是首次预览时
-                if (addedCount === 0) {
-                    const firstMessageDelay = isFirstPreview ? 1000 : 300;
-                    console.log(`[${PLUGIN_NAME}] 首条消息添加后等待 ${firstMessageDelay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, firstMessageDelay));
-                } else {
-                    // 在消息之间添加短暂延迟，确保顺序正确
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                // 首条消息添加成功后进行重命名（仅首次预览需要）
+                if (addedCount === 0 && isFirstPreview && !hasRenamed) {
+                    try {
+                        // 等待一段时间后再尝试重命名
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        console.log(`[${PLUGIN_NAME}] 尝试重命名聊天为<预览聊天>...`);
+                        await renameChat("<预览聊天>");
+                        hasRenamed = true;
+                        console.log(`[${PLUGIN_NAME}] 聊天已重命名为<预览聊天>`);
+                    } catch (renameError) {
+                        console.warn(`[${PLUGIN_NAME}] 重命名聊天失败，将继续填充消息:`, renameError);
+                        // 即使重命名失败也继续填充
+                    }
                 }
+                
+                // 在消息之间添加短暂延迟，确保顺序正确
+                await new Promise(resolve => setTimeout(resolve, 100));
                 
                 console.log(`[${PLUGIN_NAME}] 消息 mesid=${mesid} 添加成功`);
                 addedCount++;
@@ -821,7 +830,7 @@ jQuery(async () => {
             addFavoriteIconsToMessages();
         };
         
-        // 监听"显示更多消息"事件 - 修复第一个问题
+        // 监听"显示更多消息"事件
         eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
             console.log(`[${PLUGIN_NAME}] 加载了更多消息，添加收藏图标`);
             addFavoriteIconsToMessages();
