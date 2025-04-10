@@ -15,7 +15,6 @@ import {
     is_send_press,
     isChatSaving,
     this_chid, // Needed for context checks maybe? getCurrentChatInfo is better
-    power_user, // To get chat_truncation setting
     addOneMessage, // Explicitly import addOneMessage
     saveChatConditional, // Import for potentially saving the preview chat structure/name? (Less likely needed)
 } from '../../../../script.js';
@@ -43,6 +42,8 @@ import {
 
 // Import from i18n (as requested)
 import { t } from '../../../i18n.js';
+
+import { power_user } from '../../../power-user.js';
 
 // Import from group chats (as needed for checks)
 import {
