@@ -20,7 +20,7 @@ import { openGroupChat } from "../../../group-chats.js";
 import { renameChat } from "../../../../script.js";
 
 // 插件名称
-const PLUGIN_NAME = 'star2';
+const PLUGIN_NAME = 'favorites-plugin';
 
 /**
  * 初始化插件的必要数据结构
@@ -221,6 +221,8 @@ function handleFavoriteToggle(event) {
         // 已收藏，移除收藏
         removeFavoriteById(favorites.items[existingFavoriteIndex].id);
         $(event.currentTarget).removeClass('active');
+        // 手动改变图标颜色
+        $(event.currentTarget).find('i').css('color', 'var(--SmartThemeQuietColor)');
         toastr.success('已移除收藏');
     } else {
         // 未收藏，添加收藏
@@ -250,6 +252,8 @@ function handleFavoriteToggle(event) {
 
         if (addFavorite(messageInfo)) {
             $(event.currentTarget).addClass('active');
+            // 手动改变图标颜色
+            $(event.currentTarget).find('i').css('color', 'gold');
             toastr.success('已添加收藏');
         } else {
             toastr.error('添加收藏失败');
@@ -290,15 +294,18 @@ function refreshFavoriteIconsInView() {
     const chatId = context.chatId;
     const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
 
-    // 清除所有活跃状态
-    $('.favorite-toggle').removeClass('active');
+    // 清除所有活跃状态并重置颜色
+    $('.favorite-toggle').removeClass('active')
+        .find('i').css('color', 'var(--SmartThemeQuietColor)');
 
-    // 设置已收藏消息的活跃状态
+    // 设置已收藏消息的活跃状态和颜色
     favorites.items.forEach(favorite => {
         const messageId = favorite.messageId;
         const messageBlock = $(`.mes[mesid="${messageId}"]`);
         if (messageBlock.length) {
-            messageBlock.find('.favorite-toggle').addClass('active');
+            messageBlock.find('.favorite-toggle')
+                .addClass('active')
+                .find('i').css('color', 'gold');
         }
     });
 }
@@ -420,44 +427,53 @@ function updateFavoritesPopup() {
  * 显示收藏弹窗
  */
 function showFavoritesPopup() {
-    // 确保弹窗容器存在
-    if (!$('#favorites_popup').length) {
-        $('body').append(`
-            <div id="favorites_popup" class="draggable-handle">
-                <div id="favorites_popup_content" class="favorites-popup-content"></div>
-            </div>
-        `);
-
-        // 使弹窗可拖动
-        $('#favorites_popup').draggable({
-            handle: '.draggable-handle',
-            containment: 'window' // 限制在窗口内拖动
-        });
-    }
-
-    // 重置弹窗位置到屏幕中央
-    $('#favorites_popup').css({
-        'position': 'fixed',
-        'top': '50%',
-        'left': '50%',
-        'transform': 'translate(-50%, -50%)',
-        'width': '70%',
-        'max-width': '800px',
-        'max-height': '80vh',
-        'overflow': 'hidden',
-        'z-index': 1001,
-        'border-radius': '10px',
-        'background-color': 'var(--SmartThemeBGColor)',
-        'border': '1px solid var(--SmartThemeBorderColor)',
-        'box-shadow': '0 0 10px rgba(0,0,0,0.5)'
-    });
-
+    // 移除现有弹窗（如果有）
+    $('#favorites_popup').remove();
+    
+    // 创建新弹窗并直接添加到body
+    $('body').append(`
+        <div id="favorites_popup">
+            <div id="favorites_popup_content" class="favorites-popup-content"></div>
+        </div>
+    `);
+    
     // 更新弹窗内容
     updateFavoritesPopup();
-
+    
+    // 设置弹窗样式，使用绝对值而不是百分比
+    const windowHeight = $(window).height();
+    const windowWidth = $(window).width();
+    const popupHeight = 600; // 固定高度
+    const popupWidth = Math.min(800, windowWidth * 0.7); // 固定宽度，但不超过窗口宽度的70%
+    
+    // 计算居中位置
+    const topPosition = Math.max(20, (windowHeight - popupHeight) / 2);
+    const leftPosition = (windowWidth - popupWidth) / 2;
+    
+    $('#favorites_popup').css({
+        'position': 'fixed',
+        'top': `${topPosition}px`,
+        'left': `${leftPosition}px`,
+        'width': `${popupWidth}px`,
+        'max-height': `${popupHeight}px`,
+        'overflow': 'hidden',
+        'z-index': 9999,
+        'border-radius': '10px',
+        'background-color': 'var(--SmartThemeBGColor)',
+        'border': '2px solid var(--SmartThemeBorderColor)',
+        'box-shadow': '0 0 20px rgba(0,0,0,0.7)',
+        'padding': '15px'
+    });
+    
     // 显示弹窗
     $('#favorites_popup').show();
-
+    
+    // 使弹窗可拖动
+    $('#favorites_popup').draggable({
+        handle: '.favorites-header',
+        containment: 'window'
+    });
+    
     // 点击弹窗外部关闭
     $(document).on('mousedown.favorites_popup', function(e) {
         const $target = $(e.target);
@@ -704,7 +720,9 @@ async function handleDeleteFavoriteFromPopup(favId, messageId) {
     
     if (removeFavoriteById(favId)) {
         // 更新消息上的图标
-        $(`.mes[mesid="${messageId}"] .favorite-toggle`).removeClass('active');
+        $(`.mes[mesid="${messageId}"] .favorite-toggle`)
+            .removeClass('active')
+            .find('i').css('color', 'var(--SmartThemeQuietColor)');
         toastr.success('已删除收藏');
     } else {
         toastr.error('删除收藏失败');
@@ -782,6 +800,19 @@ jQuery(async () => {
     try {
         // 加载CSS文件
         $('head').append(`<link rel="stylesheet" type="text/css" href="../extensions/third-party/${PLUGIN_NAME}/style.css">`);
+        
+        // 添加内联CSS以确保图标颜色正确
+        $('head').append(`
+            <style>
+                /* 确保收藏图标样式 */
+                .favorite-toggle i {
+                    color: var(--SmartThemeQuietColor) !important;
+                }
+                .favorite-toggle.active i {
+                    color: gold !important;
+                }
+            </style>
+        `);
         
         // 注入快捷按钮
         const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${PLUGIN_NAME}`, 'input_button');
