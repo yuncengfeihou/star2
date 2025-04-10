@@ -5,7 +5,7 @@ import {
     saveSettingsDebounced, 
     systemUserName, 
     chat, 
-    callPopup，
+    callPopup,
     clearChat,
     doNewChat,
     is_send_press,
