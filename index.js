@@ -312,7 +312,7 @@ async function handlePreviewFavorites() {
         const chatId = context.chatId;
         const characterId = context.characterId;
         const groupId = context.groupId;
-        const originalChat = [...context.chat]; // 复制当前聊天数组
+        const originalChat = context.chat; // 直接使用context.chat，不复制
         
         // 确保预览聊天IDs对象存在
         ensureFavoritesArrayExists();
@@ -331,13 +331,33 @@ async function handlePreviewFavorites() {
         // 收集完整的收藏消息
         const fullMessagesToPreview = [];
         for (const favItem of favItems) {
-            const fullMessage = originalChat.find(msg => String(msg.id || msg.index) === String(favItem.messageId));
+            // 更详细的调试日志
+            console.log(`[${pluginName}] 查找收藏消息 ID:${favItem.messageId}, 类型:${typeof favItem.messageId}`);
+            
+            // 完全匹配原始插件中的消息查找方式
+            const fullMessage = originalChat.find(msg => {
+                const msgId = msg.id !== undefined ? msg.id : (msg.index !== undefined ? msg.index : null);
+                const strMsgId = String(msgId);
+                const strFavId = String(favItem.messageId);
+                const isMatch = strMsgId === strFavId;
+                
+                if (msgId !== null) {
+                    console.log(`[${pluginName}] 比较 - 消息ID:${strMsgId} vs 收藏ID:${strFavId}, 匹配:${isMatch}`);
+                }
+                
+                return isMatch;
+            });
+            
             if (fullMessage) {
                 // 创建消息的深拷贝，避免引用原始对象
                 const messageCopy = JSON.parse(JSON.stringify(fullMessage));
+                console.log(`[${pluginName}] 找到收藏消息 ID:${favItem.messageId}, 内容:${messageCopy.mes.substring(0, 30)}...`);
                 fullMessagesToPreview.push(messageCopy);
             } else {
                 console.warn(`[${pluginName}] 警告: 未找到收藏的消息 ID:${favItem.messageId}`);
+                
+                // 输出所有消息ID以便调试
+                console.log(`[${pluginName}] 当前聊天消息ID列表:`, originalChat.map(msg => msg.id || msg.index));
             }
         }
         
@@ -375,15 +395,26 @@ async function handlePreviewFavorites() {
             // 切换到已有的预览聊天
             console.log(`[${pluginName}] 找到预览聊天ID:${previewChatId}，正在切换...`);
             
-            if (selected_group !== null) {
-                // 群组聊天
-                await openGroupChat(groupId, previewChatId);
-            } else {
-                // 角色聊天
-                await openCharacterChat(characterId, previewChatId);
+            try {
+                if (selected_group !== null) {
+                    // 群组聊天
+                    await openGroupChat(groupId, previewChatId);
+                } else {
+                    // 角色聊天
+                    await openCharacterChat(characterId, previewChatId);
+                }
+                
+                console.log(`[${pluginName}] 已切换到预览聊天 ID:${previewChatId}`);
+            } catch (error) {
+                console.error(`[${pluginName}] 切换聊天失败:`, error);
+                // 如果切换失败，尝试创建新的预览聊天
+                await doNewChat({ deleteCurrentChat: false });
+                const newContext = getContext();
+                const newPreviewChatId = newContext.chatId;
+                await renameChat(newPreviewChatId, "<收藏预览>");
+                extension_settings[pluginName].previewChatIds[chatId] = newPreviewChatId;
+                savePluginSettings();
             }
-            
-            console.log(`[${pluginName}] 已切换到预览聊天 ID:${previewChatId}`);
         }
         
         // 延迟一下确保聊天已切换
@@ -402,9 +433,9 @@ async function handlePreviewFavorites() {
         // 将收藏消息按原始顺序排序
         fullMessagesToPreview.sort((a, b) => {
             // 尝试使用id排序，如果没有则使用index
-            const idA = a.id || a.index || 0;
-            const idB = b.id || b.index || 0;
-            return idA - idB;
+            const idA = a.id !== undefined ? a.id : (a.index !== undefined ? a.index : 0);
+            const idB = b.id !== undefined ? b.id : (b.index !== undefined ? b.index : 0);
+            return Number(idA) - Number(idB);
         });
         
         // 添加收藏消息到预览聊天
@@ -413,7 +444,7 @@ async function handlePreviewFavorites() {
         let addedCount = 0;
         for (const message of fullMessagesToPreview) {
             try {
-                const previewId = message.id || message.index;
+                const previewId = message.id !== undefined ? message.id : (message.index !== undefined ? message.index : addedCount);
                 console.log(`[${pluginName}] 添加消息 ID:${previewId}: ${message.mes.substring(0, 30)}...`);
                 
                 await previewContext.addOneMessage(message, { 
