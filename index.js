@@ -47,8 +47,8 @@ import { t } from '../../../i18n.js';
 
 (function () { // Use IIFE to encapsulate plugin logic
 
-    const pluginName = 'my-favorites-plugin';
-    const pluginFolderName = 'my-favorites-plugin'; // Matches the actual folder name
+    const pluginName = 'star2';
+    const pluginFolderName = 'star2'; // Matches the actual folder name
     const logPrefix = `[${pluginName}]`;
     const previewChatName = '<预览聊天>'; // Name for the preview chat
 
