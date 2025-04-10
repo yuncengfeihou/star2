@@ -1368,7 +1368,7 @@ import { t } from '../../../i18n.js';
         // 1. Inject into Extensions Page
         try {
             // Use the existing settings_display.html template name
-            const settingsHtml = await renderExtensionTemplateAsync(pluginFolderName, 'settings_display'); // Use folder name
+            const settingsHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'settings_display'); // Use folder name
              let $container = $('#extensions_settings');
              if (!$container.length) $container = $('#extension_settings_container'); // Fallback ID
              if (!$container.length) $container = $('#extensionsContainer'); // Another common ID
@@ -1392,7 +1392,7 @@ import { t } from '../../../i18n.js';
         // 2. Inject Sidebar Button (using your input_button.html)
         try {
             // Use the existing input_button.html template name
-            const sidebarButtonHtml = await renderExtensionTemplateAsync(pluginFolderName, 'input_button'); // Use folder name
+            const sidebarButtonHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'input_button'); // Use folder name
             // Inject next to other input buttons if possible
             // Common containers: #chat_input_buttons, #right-nav-panel, #extensions_placeholder
              let $buttonContainer = $('#chat_input_buttons');
