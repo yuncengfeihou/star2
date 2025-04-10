@@ -22,828 +22,795 @@ import { renameChat } from "../../../../script.js";
 // 插件名称
 const PLUGIN_NAME = 'star2';
 
-/**
- * 初始化插件的必要数据结构
- */
+// 创建一个辅助函数来确保存在必要的数据结构
 function ensureFavoritesArrayExists() {
-    // 确保插件设置存在
+    // 初始化插件设置
     if (!extension_settings[PLUGIN_NAME]) {
         extension_settings[PLUGIN_NAME] = {};
     }
 
-    // 确保chats对象存在
+    // 确保聊天信息存在
     if (!extension_settings[PLUGIN_NAME].chats) {
         extension_settings[PLUGIN_NAME].chats = {};
     }
 
-    // 确保当前聊天的收藏数据存在
+    // 确保预览聊天信息存在
+    if (!extension_settings[PLUGIN_NAME].previewChats) {
+        extension_settings[PLUGIN_NAME].previewChats = {};
+    }
+
+    // 获取当前聊天ID
     const context = getContext();
     const chatId = context.chatId;
 
-    if (!chatId) {
-        console.debug(`${PLUGIN_NAME}: No active chat id found`);
-        return false;
-    }
-
+    // 如果当前聊天没有收藏数组，创建一个
     if (!extension_settings[PLUGIN_NAME].chats[chatId]) {
         extension_settings[PLUGIN_NAME].chats[chatId] = {
             items: [],
-            nextId: 1,
-            previewChatId: null // 添加存储预览聊天ID的字段
+            nextId: 1
         };
-        console.debug(`${PLUGIN_NAME}: Created favorites array for chat ${chatId}`);
-        saveSettingsDebounced();
     }
 
-    return true;
+    return {
+        chatSettings: extension_settings[PLUGIN_NAME].chats[chatId],
+        chatId: chatId
+    };
 }
 
-/**
- * 添加新收藏
- * @param {Object} messageInfo 消息信息
- * @returns {Object|false} 新添加的收藏对象或失败标志
- */
+// 添加收藏
 function addFavorite(messageInfo) {
-    if (!ensureFavoritesArrayExists()) {
-        return false;
-    }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 检查是否已收藏
-    const existingFavorite = favorites.items.find(item => 
-        String(item.messageId) === String(messageInfo.id));
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    // 检查消息是否已经收藏
+    const existingFavorite = chatSettings.items.find(item => 
+        item.messageId === messageInfo.messageId);
     
     if (existingFavorite) {
-        console.debug(`${PLUGIN_NAME}: Message already favorited`, messageInfo.id);
+        console.log(`[${PLUGIN_NAME}] 消息已经收藏过了，messageId: ${messageInfo.messageId}`);
         return false;
     }
-
-    // 创建新收藏
+    
+    // 创建新的收藏项
     const newFavorite = {
-        id: favorites.nextId++,
-        messageId: messageInfo.id,
-        name: messageInfo.name,
-        isUser: messageInfo.is_user || false,
-        isSystem: messageInfo.is_system || false,
-        avatar: messageInfo.force_avatar || messageInfo.avatar,
-        messageText: messageInfo.mes.substring(0, 100) + (messageInfo.mes.length > 100 ? '...' : ''),
+        id: chatSettings.nextId++,
+        messageId: messageInfo.messageId,
+        isUser: messageInfo.isUser,
+        sender: messageInfo.sender,
+        preview: messageInfo.preview,
         timestamp: Date.now(),
         note: ''
     };
-
-    favorites.items.push(newFavorite);
-    saveSettingsDebounced();
     
-    console.debug(`${PLUGIN_NAME}: Added favorite`, newFavorite);
-    return newFavorite;
+    // 添加到收藏数组
+    chatSettings.items.push(newFavorite);
+    
+    // 保存设置
+    saveSettingsDebounced();
+    console.log(`[${PLUGIN_NAME}] 添加了新收藏，id: ${newFavorite.id}, messageId: ${newFavorite.messageId}`);
+    
+    return true;
 }
 
-/**
- * 根据收藏ID删除收藏
- * @param {number} favoriteId 收藏ID
- * @returns {boolean} 是否成功删除
- */
+// 通过ID删除收藏
 function removeFavoriteById(favoriteId) {
-    if (!ensureFavoritesArrayExists()) {
-        return false;
-    }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 查找收藏索引
-    const index = favorites.items.findIndex(item => item.id === favoriteId);
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
     
-    if (index === -1) {
-        console.debug(`${PLUGIN_NAME}: Favorite not found`, favoriteId);
-        return false;
-    }
-
-    // 移除收藏
-    favorites.items.splice(index, 1);
-    saveSettingsDebounced();
+    const initialLength = chatSettings.items.length;
     
-    console.debug(`${PLUGIN_NAME}: Removed favorite`, favoriteId);
-    return true;
+    // 过滤掉要删除的收藏
+    chatSettings.items = chatSettings.items.filter(item => item.id !== favoriteId);
+    
+    // 如果数组长度变化，说明删除成功
+    const removed = chatSettings.items.length < initialLength;
+    
+    if (removed) {
+        // 保存设置
+        saveSettingsDebounced();
+        console.log(`[${PLUGIN_NAME}] 删除了收藏，id: ${favoriteId}`);
+        
+        // 刷新图标状态
+        refreshFavoriteIconsInView();
+    } else {
+        console.log(`[${PLUGIN_NAME}] 未能找到要删除的收藏，id: ${favoriteId}`);
+    }
+    
+    return removed;
 }
 
-/**
- * 根据消息ID删除收藏
- * @param {number|string} messageId 消息ID
- * @returns {boolean} 是否成功删除
- */
+// 通过消息ID删除收藏
 function removeFavoriteByMessageId(messageId) {
-    if (!ensureFavoritesArrayExists()) {
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    const favoriteToRemove = chatSettings.items.find(item => item.messageId === messageId);
+    
+    if (favoriteToRemove) {
+        return removeFavoriteById(favoriteToRemove.id);
+    } else {
+        console.log(`[${PLUGIN_NAME}] 未能找到要删除的收藏，messageId: ${messageId}`);
         return false;
     }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 查找收藏索引
-    const index = favorites.items.findIndex(item => String(item.messageId) === String(messageId));
-    
-    if (index === -1) {
-        console.debug(`${PLUGIN_NAME}: Favorite with message ID not found`, messageId);
-        return false;
-    }
-
-    // 移除收藏
-    favorites.items.splice(index, 1);
-    saveSettingsDebounced();
-    
-    console.debug(`${PLUGIN_NAME}: Removed favorite with message ID`, messageId);
-    return true;
 }
 
-/**
- * 更新收藏的备注
- * @param {number} favoriteId 收藏ID
- * @param {string} note 新备注
- * @returns {boolean} 是否成功更新
- */
+// 更新收藏笔记
 function updateFavoriteNote(favoriteId, note) {
-    if (!ensureFavoritesArrayExists()) {
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    const favoriteToUpdate = chatSettings.items.find(item => item.id === favoriteId);
+    
+    if (favoriteToUpdate) {
+        favoriteToUpdate.note = note;
+        saveSettingsDebounced();
+        console.log(`[${PLUGIN_NAME}] 更新了收藏笔记，id: ${favoriteId}`);
+        return true;
+    } else {
+        console.log(`[${PLUGIN_NAME}] 未能找到要更新的收藏，id: ${favoriteId}`);
         return false;
     }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 查找收藏
-    const favorite = favorites.items.find(item => item.id === favoriteId);
-    
-    if (!favorite) {
-        console.debug(`${PLUGIN_NAME}: Favorite not found for note update`, favoriteId);
-        return false;
-    }
-
-    // 更新备注
-    favorite.note = note;
-    saveSettingsDebounced();
-    
-    console.debug(`${PLUGIN_NAME}: Updated note for favorite`, favoriteId);
-    return true;
 }
 
-/**
- * 处理收藏/取消收藏按钮点击
- * @param {Event} event 点击事件
- */
+// 处理收藏切换
 function handleFavoriteToggle(event) {
-    const messageBlock = $(event.currentTarget).closest('.mes');
-    const messageId = Number(messageBlock.attr('mesid'));
+    const target = $(event.currentTarget);
+    const messageBlock = target.closest('.mes');
+    const messageId = parseInt(messageBlock.attr('mesid'));
     
     if (isNaN(messageId)) {
-        console.error(`${PLUGIN_NAME}: Invalid message ID`, messageId);
+        console.error(`[${PLUGIN_NAME}] 无效的mesid: ${messageBlock.attr('mesid')}`);
         return;
     }
-
-    // 检查是否已经收藏
-    const context = getContext();
-    const chatId = context.chatId;
     
-    if (!extension_settings[PLUGIN_NAME].chats?.[chatId]) {
-        ensureFavoritesArrayExists();
-    }
-
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-    const existingFavoriteIndex = favorites.items.findIndex(item => 
-        String(item.messageId) === String(messageId));
+    const isFavorited = target.find('i').hasClass('fa-solid');
     
-    if (existingFavoriteIndex !== -1) {
-        // 已收藏，移除收藏
-        removeFavoriteById(favorites.items[existingFavoriteIndex].id);
-        $(event.currentTarget).removeClass('active');
-        // 手动改变图标颜色
-        $(event.currentTarget).find('i').css('color', 'var(--SmartThemeQuietColor)');
-        toastr.success('已移除收藏');
+    if (isFavorited) {
+        // 取消收藏
+        const removed = removeFavoriteByMessageId(messageId);
+        if (removed) {
+            target.find('i').removeClass('fa-solid').addClass('fa-regular');
+        }
     } else {
-        // 未收藏，添加收藏
-        if (messageId < 0 || messageId >= chat.length) {
-            console.error(`${PLUGIN_NAME}: Message ID out of range`, messageId, chat.length);
-            toastr.error('无法收藏：消息不存在');
-            return;
-        }
-
-        const message = chat[messageId];
-        if (!message) {
-            console.error(`${PLUGIN_NAME}: Message not found at index`, messageId);
-            toastr.error('无法收藏：消息不存在');
-            return;
-        }
-
-        // 创建收藏信息
+        // 添加收藏
+        const messageDom = messageBlock[0];
+        const isUser = messageBlock.hasClass('mes_user');
+        const sender = isUser ? 
+            getContext().name1 : 
+            $(messageDom).find('.ch_name .name').text().trim();
+        
+        // 获取消息预览
+        const mesContent = $(messageDom).find('.mes_text').html() || '';
+        // 提取文本，最多200个字符
+        const textPreview = $('<div>').html(mesContent).text().substring(0, 200);
+        
         const messageInfo = {
-            id: messageId, // 使用mesid作为id
-            name: message.name,
-            is_user: message.is_user,
-            is_system: message.is_system,
-            force_avatar: message.force_avatar,
-            avatar: message.avatar,
-            mes: message.mes
+            messageId: messageId,
+            isUser: isUser,
+            sender: sender || (isUser ? 'User' : 'Character'),
+            preview: textPreview + (textPreview.length >= 200 ? '...' : '')
         };
-
-        if (addFavorite(messageInfo)) {
-            $(event.currentTarget).addClass('active');
-            // 手动改变图标颜色
-            $(event.currentTarget).find('i').css('color', 'gold');
-            toastr.success('已添加收藏');
-        } else {
-            toastr.error('添加收藏失败');
+        
+        const added = addFavorite(messageInfo);
+        if (added) {
+            target.find('i').removeClass('fa-regular').addClass('fa-solid');
         }
     }
+}
 
-    // 刷新收藏图标样式
+// 为消息添加收藏图标
+function addFavoriteIconsToMessages() {
+    ensureFavoritesArrayExists();
+    
+    // 为所有没有收藏按钮的消息添加收藏按钮
+    $('#chat .mes').each(function () {
+        const messageBlock = $(this);
+        
+        // 排除系统消息和已有收藏按钮的消息
+        if (messageBlock.hasClass('system') || messageBlock.find('.favorite-toggle-icon').length > 0) {
+            return;
+        }
+        
+        // 创建收藏按钮
+        const favButton = $('<div class="favorite-toggle-icon" title="添加/删除收藏"><i class="fa-regular fa-star"></i></div>');
+        
+        // 添加到消息的extraMesButtons容器
+        messageBlock.find('.extraMesButtons').append(favButton);
+    });
+    
+    // 刷新图标状态
     refreshFavoriteIconsInView();
 }
 
-/**
- * 为所有消息添加收藏图标
- */
-function addFavoriteIconsToMessages() {
-    // 为所有消息添加收藏按钮
-    $('.mes:not(.system):not(.has-favorite-icon)').each(function() {
-        $(this).addClass('has-favorite-icon');
-        const extraButtonsDiv = $(this).find('.extraMesButtons');
-        if (extraButtonsDiv.length) {
-            extraButtonsDiv.append(`
-                <div class="mes_button favorite-toggle" title="收藏此消息">
-                    <i class="fa-solid fa-star"></i>
-                </div>
-            `);
-        }
-    });
-}
-
-/**
- * 刷新可见消息的收藏图标状态
- */
+// 刷新视图中的收藏图标
 function refreshFavoriteIconsInView() {
-    if (!ensureFavoritesArrayExists()) {
-        return;
-    }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 清除所有活跃状态并重置颜色
-    $('.favorite-toggle').removeClass('active')
-        .find('i').css('color', 'var(--SmartThemeQuietColor)');
-
-    // 设置已收藏消息的活跃状态和颜色
-    favorites.items.forEach(favorite => {
-        const messageId = favorite.messageId;
-        const messageBlock = $(`.mes[mesid="${messageId}"]`);
-        if (messageBlock.length) {
-            messageBlock.find('.favorite-toggle')
-                .addClass('active')
-                .find('i').css('color', 'gold');
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    // 遍历所有消息图标
+    $('#chat .mes .favorite-toggle-icon').each(function () {
+        const messageBlock = $(this).closest('.mes');
+        const messageId = parseInt(messageBlock.attr('mesid'));
+        
+        // 检查消息是否在收藏列表中
+        const isFavorited = chatSettings.items.some(item => item.messageId === messageId);
+        
+        // 更新图标样式
+        if (isFavorited) {
+            $(this).find('i').removeClass('fa-regular').addClass('fa-solid');
+        } else {
+            $(this).find('i').removeClass('fa-solid').addClass('fa-regular');
         }
     });
 }
 
-/**
- * 渲染单个收藏项
- * @param {Object} favItem 收藏项
- * @param {number} index 索引
- * @returns {string} HTML字符串
- */
+// 渲染收藏项
 function renderFavoriteItem(favItem, index) {
-    const avatarImg = favItem.avatar 
-        ? `<img src="${favItem.avatar}" class="avatar" />`
-        : `<div class="avatar default"></div>`;
-
-    const nameClass = favItem.isUser ? 'user-name' : (favItem.isSystem ? 'system-name' : 'char-name');
-    const noteHtml = favItem.note ? `<div class="fav-note"><strong>备注:</strong> ${favItem.note}</div>` : '';
+    // 查看这条收藏的消息是否还存在
+    let messageExists = false;
+    let originalMessage = null;
     
-    // 使用用户CSS类名
-    return `
-        <div class="favorite-item" data-id="${favItem.id}" data-message-id="${favItem.messageId}" data-index="${index}">
+    if (chat && chat.length > favItem.messageId) {
+        originalMessage = chat[favItem.messageId];
+        messageExists = !!originalMessage;
+    }
+    
+    // 渲染收藏项目
+    const itemHtml = `
+        <div class="favorite-item" data-fav-id="${favItem.id}" data-index="${index}">
             <div class="fav-meta">
-                <span class="fav-name ${nameClass}">${favItem.name}</span>
+                ${favItem.sender || (favItem.isUser ? 'User' : 'Character')} • 
+                ${new Date(favItem.timestamp).toLocaleString()} • 
+                ID: ${favItem.messageId}
             </div>
-            ${noteHtml}
-            <div class="fav-preview">${favItem.messageText}</div>
+            ${favItem.note ? `<div class="fav-note">${favItem.note}</div>` : ''}
+            <div class="fav-preview ${!messageExists ? 'deleted' : ''}">
+                ${messageExists ? favItem.preview : '(原消息已删除)'}
+            </div>
             <div class="fav-actions">
-                <i class="fa-solid fa-pencil btn_edit_note" title="编辑备注"></i>
-                <i class="fa-solid fa-trash btn_delete_favorite" title="删除收藏"></i>
+                <i class="fa-solid fa-pencil" title="编辑备注"></i>
+                <i class="fa-solid fa-trash" title="删除收藏"></i>
             </div>
         </div>
     `;
+    
+    return itemHtml;
 }
 
-/**
- * 更新收藏弹窗内容
- */
+// 更新收藏弹窗
 function updateFavoritesPopup() {
-    if (!ensureFavoritesArrayExists()) {
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    const $popup = $('#favorites-popup');
+    const $content = $popup.find('.favorites-popup-content');
+    
+    if (chatSettings.items.length === 0) {
+        // 没有收藏时显示提示
+        $content.html(`
+            <div class="favorites-empty">
+                <p>当前聊天没有收藏的消息</p>
+                <p>点击消息右下角的星星图标来收藏重要消息</p>
+            </div>
+        `);
+        
+        // 更新标题
+        $popup.find('.favorites-header h3').text('收藏列表 (0)');
+        
+        // 隐藏预览按钮
+        $popup.find('#favorites-preview-btn').hide();
         return;
     }
-
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-
-    // 获取容器元素
-    const container = $('#favorites_popup_content');
-    if (!container.length) return;
-
-    // 清空容器
-    container.empty();
-
-    // 添加标题和操作栏
-    container.append(`
-        <div class="favorites-header">
-            <h3>收藏消息</h3>
-            <div class="favorites-actions">
-                <button id="preview_favorites_button" class="menu_button" title="预览收藏的消息">
-                    <i class="fa-solid fa-eye"></i> 预览
-                </button>
-                <button id="clear_invalid_favorites_button" class="menu_button" title="清理无效收藏">
-                    <i class="fa-solid fa-broom"></i> 清理
-                </button>
-                <button id="close_favorites_popup_button" class="menu_button" title="关闭">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
+    
+    // 更新标题
+    $popup.find('.favorites-header h3').text(`收藏列表 (${chatSettings.items.length})`);
+    
+    // 显示预览按钮
+    $popup.find('#favorites-preview-btn').show();
+    
+    // 渲染所有收藏
+    let favoritesHtml = '<div class="favorites-list">';
+    
+    // 按添加时间倒序排列
+    const sortedItems = [...chatSettings.items].sort((a, b) => b.timestamp - a.timestamp);
+    
+    sortedItems.forEach((favItem, index) => {
+        favoritesHtml += renderFavoriteItem(favItem, index);
+    });
+    
+    favoritesHtml += '</div>';
+    
+    // 添加清理无效收藏按钮
+    favoritesHtml += `
+        <div class="favorites-footer">
+            <button id="favorites-clear-invalid" class="menu_button">清理无效收藏</button>
         </div>
-        <div class="favorites-divider"></div>
-    `);
-
-    // 添加收藏内容
-    const favoritesList = $('<div class="favorites-list"></div>');
-    container.append(favoritesList);
-
-    if (favorites.items.length === 0) {
-        favoritesList.append('<div class="favorites-empty">没有收藏的消息</div>');
-    } else {
-        // 按时间倒序排列
-        const sortedFavorites = [...favorites.items].sort((a, b) => b.timestamp - a.timestamp);
+    `;
+    
+    $content.html(favoritesHtml);
+    
+    // 绑定事件
+    $content.find('.fa-trash').off('click').on('click', function() {
+        const favItem = $(this).closest('.favorite-item');
+        const favId = parseInt(favItem.attr('data-fav-id'));
+        const messageId = chatSettings.items.find(item => item.id === favId)?.messageId;
         
-        sortedFavorites.forEach((favItem, index) => {
-            favoritesList.append(renderFavoriteItem(favItem, index));
-        });
-    }
-
-    // 添加事件监听
-    $('#close_favorites_popup_button').off('click').on('click', function() {
-        $('#favorites_popup').hide();
+        handleDeleteFavoriteFromPopup(favId, messageId);
     });
-
-    $('#clear_invalid_favorites_button').off('click').on('click', async function() {
-        await handleClearInvalidFavorites();
-        updateFavoritesPopup();
-    });
-
-    $('#preview_favorites_button').off('click').on('click', async function() {
-        await handlePreviewFavorites();
-    });
-
-    $('.btn_delete_favorite').off('click').on('click', async function() {
-        const favoriteItem = $(this).closest('.favorite-item');
-        const favoriteId = Number(favoriteItem.data('id'));
-        const messageId = favoriteItem.data('message-id');
+    
+    $content.find('.fa-pencil').off('click').on('click', function() {
+        const favItem = $(this).closest('.favorite-item');
+        const favId = parseInt(favItem.attr('data-fav-id'));
         
-        await handleDeleteFavoriteFromPopup(favoriteId, messageId);
-        updateFavoritesPopup();
+        handleEditNote(favId);
     });
-
-    $('.btn_edit_note').off('click').on('click', async function() {
-        const favoriteId = Number($(this).closest('.favorite-item').data('id'));
-        await handleEditNote(favoriteId);
-        updateFavoritesPopup();
+    
+    $content.find('#favorites-clear-invalid').off('click').on('click', function() {
+        handleClearInvalidFavorites();
     });
 }
 
-/**
- * 显示收藏弹窗
- */
+// 显示收藏弹窗
 function showFavoritesPopup() {
-    // 移除现有弹窗（如果有）
-    $('#favorites_popup').remove();
+    // 如果弹窗已存在，更新内容
+    if ($('#favorites-popup').length) {
+        updateFavoritesPopup();
+        return;
+    }
     
-    // 创建新弹窗并直接添加到body
-    $('body').append(`
-        <div id="favorites_popup">
-            <div id="favorites_popup_content" class="favorites-popup-content"></div>
+    // 创建弹窗HTML
+    const popupHtml = `
+        <div id="favorites-popup" class="draggable">
+            <div class="favorites-header">
+                <h3>收藏列表</h3>
+                <button id="favorites-preview-btn" class="menu_button">预览收藏</button>
+                <div class="popup-closer" onclick="$('#favorites-popup').remove()">×</div>
+            </div>
+            <div class="favorites-divider"></div>
+            <div class="favorites-popup-content">
+                <div class="loader"></div>
+            </div>
         </div>
-    `);
+    `;
     
-    // 更新弹窗内容
-    updateFavoritesPopup();
-    
-    // 设置弹窗样式，使用绝对值而不是百分比
-    const windowHeight = $(window).height();
-    const windowWidth = $(window).width();
-    const popupHeight = 600; // 固定高度
-    const popupWidth = Math.min(800, windowWidth * 0.7); // 固定宽度，但不超过窗口宽度的70%
-    
-    // 计算居中位置
-    const topPosition = Math.max(20, (windowHeight - popupHeight) / 2);
-    const leftPosition = (windowWidth - popupWidth) / 2;
-    
-    $('#favorites_popup').css({
-        'position': 'fixed',
-        'top': `${topPosition}px`,
-        'left': `${leftPosition}px`,
-        'width': `${popupWidth}px`,
-        'max-height': `${popupHeight}px`,
-        'overflow': 'hidden',
-        'z-index': 9999,
-        'border-radius': '10px',
-        'background-color': 'var(--SmartThemeBGColor)',
-        'border': '2px solid var(--SmartThemeBorderColor)',
-        'box-shadow': '0 0 20px rgba(0,0,0,0.7)',
-        'padding': '15px'
-    });
-    
-    // 显示弹窗
-    $('#favorites_popup').show();
+    // 添加到页面
+    $('body').append(popupHtml);
     
     // 使弹窗可拖动
-    $('#favorites_popup').draggable({
+    $('#favorites-popup').draggable({
         handle: '.favorites-header',
         containment: 'window'
     });
     
-    // 点击弹窗外部关闭
-    $(document).on('mousedown.favorites_popup', function(e) {
-        const $target = $(e.target);
-        if ($('#favorites_popup').is(':visible') && 
-            !$target.closest('#favorites_popup').length &&
-            !$target.closest('#favorites_button').length) {
-            $('#favorites_popup').hide();
-            $(document).off('mousedown.favorites_popup');
-        }
+    // 居中显示
+    const $popup = $('#favorites-popup');
+    $popup.css({
+        top: ($(window).height() - $popup.outerHeight()) / 2,
+        left: ($(window).width() - $popup.outerWidth()) / 2
     });
+    
+    // 绑定预览按钮事件
+    $('#favorites-preview-btn').off('click').on('click', async function() {
+        await handlePreviewButtonClick();
+    });
+    
+    // 更新内容
+    updateFavoritesPopup();
 }
 
-/**
- * 处理预览收藏消息
- */
-async function handlePreviewFavorites() {
-    console.log(`${PLUGIN_NAME}: 预览按钮被点击`);
+// 从弹窗中删除收藏
+async function handleDeleteFavoriteFromPopup(favId, messageId) {
+    const confirmResult = await callPopup('确定要删除这条收藏吗？', 'confirm');
+    
+    if (!confirmResult) {
+        return;
+    }
+    
+    // 删除收藏
+    const removed = removeFavoriteById(favId);
+    
+    if (removed) {
+        // 更新弹窗内容
+        updateFavoritesPopup();
+    }
+}
+
+// 编辑收藏笔记
+async function handleEditNote(favId) {
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    const favItem = chatSettings.items.find(item => item.id === favId);
+    
+    if (!favItem) {
+        console.error(`[${PLUGIN_NAME}] 未能找到收藏项，id: ${favId}`);
+        return;
+    }
+    
+    const result = await callPopup('<textarea id="favorite-note-input" style="width:100%; height:100px;">'+ (favItem.note || '') +'</textarea>', 'input');
+    
+    if (result) {
+        updateFavoriteNote(favId, result);
+        updateFavoritesPopup();
+    }
+}
+
+// 清除无效收藏
+async function handleClearInvalidFavorites() {
+    if (!chat || chat.length === 0) {
+        toastr.warning('聊天记录为空，无法检查收藏有效性');
+        return;
+    }
+    
+    const { chatSettings, chatId } = ensureFavoritesArrayExists();
+    
+    // 找出引用不存在的消息的收藏项
+    const invalidItems = chatSettings.items.filter(item => {
+        return item.messageId >= chat.length || !chat[item.messageId];
+    });
+    
+    if (invalidItems.length === 0) {
+        toastr.success('没有发现无效收藏');
+        return;
+    }
+    
+    const confirmResult = await callPopup(`发现 ${invalidItems.length} 条无效收藏，确定要清除吗？`, 'confirm');
+    
+    if (!confirmResult) {
+        return;
+    }
+    
+    // 删除无效收藏
+    invalidItems.forEach(item => {
+        removeFavoriteById(item.id);
+    });
+    
+    // 更新弹窗
+    updateFavoritesPopup();
+    
+    toastr.success(`已清除 ${invalidItems.length} 条无效收藏`);
+}
+
+// --- 预览功能 ---
+
+// 确保预览聊天的数据存在
+function ensurePreviewData() {
+    // 获取当前聊天和角色/群组信息
+    const context = getContext();
+    const chatId = context.chatId;
+    const characterId = context.characterId;
+    const groupId = context.groupId;
+    
+    // 确保预览聊天ID存储位置存在
+    if (!extension_settings[PLUGIN_NAME].previewChats) {
+        extension_settings[PLUGIN_NAME].previewChats = {};
+    }
+    
+    return {
+        chatId,
+        characterId,
+        groupId
+    };
+}
+
+// 处理预览按钮点击
+async function handlePreviewButtonClick() {
+    console.log(`[${PLUGIN_NAME}] 预览按钮被点击`);
     
     try {
         // 检查是否有角色或群组被选中
         if (selected_group === null && this_chid === undefined) {
-            console.error(`${PLUGIN_NAME}: 错误: 没有选择角色或群组`);
+            console.error(`[${PLUGIN_NAME}] 错误: 没有选择角色或群组`);
             toastr.error('请先选择一个角色或群组');
             return;
         }
 
         // 检查是否正在生成或保存，避免冲突
         if (is_send_press || is_group_generating) {
-            console.error(`${PLUGIN_NAME}: 错误: 正在生成回复，无法创建预览聊天`);
+            console.error(`[${PLUGIN_NAME}] 错误: 正在生成回复，无法创建预览聊天`);
             toastr.warning('正在生成回复，请稍后再试');
             return;
         }
         if (isChatSaving) {
-            console.error(`${PLUGIN_NAME}: 错误: 聊天正在保存，无法创建预览聊天`);
+            console.error(`[${PLUGIN_NAME}] 错误: 聊天正在保存，无法创建预览聊天`);
             toastr.warning('聊天正在保存，请稍后再试');
             return;
         }
-
-        // 检查当前聊天是否有收藏
-        if (!ensureFavoritesArrayExists()) {
-            toastr.warning('当前聊天没有收藏内容');
-            return;
-        }
-
-        // 获取当前上下文和收藏消息
+        
+        // 获取当前上下文和收藏数据
         const context = getContext();
-        const chatId = context.chatId;
-        const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
+        const { chatId, characterId, groupId } = ensurePreviewData();
         
-        if (!favorites.items.length) {
-            toastr.warning('当前聊天没有收藏内容');
+        // 获取收藏项列表
+        const { chatSettings } = ensureFavoritesArrayExists();
+        const favoriteItems = chatSettings.items;
+        
+        if (favoriteItems.length === 0) {
+            toastr.warning('没有收藏的消息可以预览');
             return;
         }
-
-        // 创建或切换到预览聊天
-        await createOrSwitchToPreviewChat();
         
-        // 隐藏收藏弹窗
-        $('#favorites_popup').hide();
+        console.log(`[${PLUGIN_NAME}] 当前聊天收藏消息数量: ${favoriteItems.length}`);
         
-    } catch (error) {
-        console.error(`${PLUGIN_NAME}: 预览收藏时出错:`, error);
-        toastr.error('预览收藏时出错，请查看控制台');
-    }
-}
-
-/**
- * 创建或切换到预览聊天
- */
-async function createOrSwitchToPreviewChat() {
-    const context = getContext();
-    const chatId = context.chatId;
-    const isGroup = selected_group !== null;
-    
-    // 获取当前收藏设置
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-    
-    console.log(`${PLUGIN_NAME}: 准备${favorites.previewChatId ? '切换到' : '创建'}预览聊天`);
-    
-    try {
-        // 如果没有预览聊天ID，创建新的聊天
-        if (!favorites.previewChatId) {
-            console.log(`${PLUGIN_NAME}: 创建新的预览聊天`);
+        // 获取原始聊天消息
+        const originalChat = [...chat];
+        
+        // 检查是否已经有预览聊天ID
+        const previewKey = groupId ? `group_${groupId}` : `char_${characterId}`;
+        const existingPreviewChatId = extension_settings[PLUGIN_NAME].previewChats[previewKey];
+        
+        if (existingPreviewChatId) {
+            console.log(`[${PLUGIN_NAME}] 发现现有预览聊天ID: ${existingPreviewChatId}`);
             
-            // 创建新聊天
+            // 切换到现有预览聊天
+            if (groupId) {
+                console.log(`[${PLUGIN_NAME}] 正在切换到群组预览聊天...`);
+                await openGroupChat(groupId, existingPreviewChatId);
+            } else {
+                console.log(`[${PLUGIN_NAME}] 正在切换到角色预览聊天...`);
+                await openCharacterChat(characterId, existingPreviewChatId);
+            }
+        } else {
+            console.log(`[${PLUGIN_NAME}] 未找到预览聊天ID，将创建新聊天`);
+            
+            // 创建新聊天并切换
             await doNewChat({ deleteCurrentChat: false });
             
-            // 获取新的上下文，以获取新创建的聊天ID
+            // 获取新创建的聊天ID
             const newContext = getContext();
-            const newChatId = newContext.chatId;
+            const newPreviewChatId = newContext.chatId;
             
-            if (!newChatId) {
-                throw new Error('创建新聊天失败：无法获取新聊天ID');
+            if (!newPreviewChatId) {
+                console.error(`[${PLUGIN_NAME}] 创建新聊天后无法获取聊天ID`);
+                toastr.error('创建预览聊天失败');
+                return;
             }
             
-            // 重命名聊天为"预览聊天"
-            await renameChat(newChatId, '<预览聊天>');
+            console.log(`[${PLUGIN_NAME}] 新聊天ID: ${newPreviewChatId}`);
             
-            // 保存预览聊天ID到插件设置
-            favorites.previewChatId = newChatId;
+            // 将新聊天ID保存为预览聊天
+            extension_settings[PLUGIN_NAME].previewChats[previewKey] = newPreviewChatId;
             saveSettingsDebounced();
             
-            console.log(`${PLUGIN_NAME}: 已创建新预览聊天: ${newChatId}`);
-            
-            // 填充预览聊天
-            await fillPreviewChatWithFavorites();
-            
-        } else {
-            // 切换到已有的预览聊天
-            console.log(`${PLUGIN_NAME}: 切换到已有预览聊天: ${favorites.previewChatId}`);
-            
-            if (isGroup) {
-                await openGroupChat(selected_group, favorites.previewChatId);
-            } else {
-                await openCharacterChat(this_chid, favorites.previewChatId);
-            }
-            
-            // 延迟一下确保聊天加载完成
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // 填充预览聊天
-            await fillPreviewChatWithFavorites();
+            // 重命名聊天
+            await renameChat("<预览聊天>");
+            console.log(`[${PLUGIN_NAME}] 聊天已重命名为<预览聊天>`);
         }
         
-        toastr.success('已加载收藏预览');
-        
-    } catch (error) {
-        console.error(`${PLUGIN_NAME}: 创建或切换预览聊天时出错:`, error);
-        toastr.error('创建或切换预览聊天时出错');
-        throw error;
-    }
-}
-
-/**
- * 用收藏的消息填充预览聊天
- */
-async function fillPreviewChatWithFavorites() {
-    try {
-        // 获取原始聊天上下文和收藏
-        const originalContext = getContext();
-        const originalChatId = originalContext.chatId;
-        const originalChat = chat; // 当前聊天消息数组
-        
-        // 获取收藏列表
-        const favorites = extension_settings[PLUGIN_NAME].chats[originalChatId];
+        // 延迟一下确保聊天加载完成
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         // 清空当前聊天
-        console.log(`${PLUGIN_NAME}: 清空预览聊天`);
+        console.log(`[${PLUGIN_NAME}] 清空当前聊天...`);
         clearChat();
         
-        // 延迟确保清空操作完成
+        // 再次延迟，确保清空操作完成
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        // 获取当前（预览）上下文
-        const previewContext = getContext();
-        
-        // 收集要填充的消息
+        // 准备要填充的收藏消息
+        console.log(`[${PLUGIN_NAME}] 正在准备收藏消息以填充预览聊天...`);
         const messagesToFill = [];
         
-        // 根据收藏项获取完整消息
-        for (const favItem of favorites.items) {
-            const messageId = Number(favItem.messageId);
+        // 遍历收藏项，收集对应的完整消息
+        for (const favItem of favoriteItems) {
+            const messageId = favItem.messageId;
             
-            // 检查messageId是否有效
-            if (messageId >= 0 && messageId < originalChat.length) {
+            if (messageId < originalChat.length && originalChat[messageId]) {
                 // 创建消息的深拷贝，避免引用原始对象
                 const messageCopy = JSON.parse(JSON.stringify(originalChat[messageId]));
                 
-                // 添加原始mesid信息
+                // 记录原始的mesid
                 messageCopy.original_mesid = messageId;
-                
-                // 如果有备注，在消息末尾添加
-                if (favItem.note) {
-                    messageCopy.mes += `\n\n<div class="fav-note"><strong>备注:</strong> ${favItem.note}</div>`;
-                }
                 
                 messagesToFill.push({
                     message: messageCopy,
                     mesid: messageId
                 });
                 
-                console.log(`${PLUGIN_NAME}: 已找到收藏消息 ID ${messageId}: ${originalChat[messageId].mes.substring(0, 30)}...`);
+                console.log(`[${PLUGIN_NAME}] 已找到收藏消息 ID ${messageId}`);
             } else {
-                console.warn(`${PLUGIN_NAME}: 警告: 收藏消息 ID ${messageId} 不存在，原聊天只有 ${originalChat.length} 条消息`);
+                console.warn(`[${PLUGIN_NAME}] 警告: 收藏消息 ID ${messageId} 不存在或已删除`);
             }
         }
         
-        // 如果没有有效消息可填充
-        if (messagesToFill.length === 0) {
-            console.log(`${PLUGIN_NAME}: 没有有效的收藏消息可以填充`);
-            
-            // 添加系统消息
-            await previewContext.sendSystemMessage('当前没有有效的收藏消息可以预览。可能原因：收藏的消息已被删除，或聊天记录已更改。');
-            return;
-        }
-        
-        // 将消息按原始顺序排序
+        // 将messagesToFill按照mesid从小到大排序，确保消息按正确顺序添加
         messagesToFill.sort((a, b) => a.mesid - b.mesid);
         
-        console.log(`${PLUGIN_NAME}: 开始填充 ${messagesToFill.length} 条收藏消息到预览聊天`);
+        console.log(`[${PLUGIN_NAME}] 找到 ${messagesToFill.length} 条有效收藏消息可以填充`);
         
-        // 填充消息
+        // 获取当前上下文
+        const newContext = getContext();
+        
+        // 填充消息到聊天
+        let addedCount = 0;
         for (const item of messagesToFill) {
             try {
                 const message = item.message;
+                const mesid = item.mesid;
                 
-                console.log(`${PLUGIN_NAME}: 正在添加消息 mesid=${item.mesid}: ${message.mes.substring(0, 30)}...`);
+                console.log(`[${PLUGIN_NAME}] 正在添加消息 mesid=${mesid}: ${message.mes.substring(0, 30)}...`);
                 
                 // 使用forceId设置为原始的mesid
-                await previewContext.addOneMessage(message, { 
+                await newContext.addOneMessage(message, { 
                     scroll: true,
-                    forceId: item.mesid
+                    forceId: mesid
                 });
                 
                 // 在消息之间添加短暂延迟，确保顺序正确
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                console.log(`${PLUGIN_NAME}: 消息 mesid=${item.mesid} 添加成功`);
+                console.log(`[${PLUGIN_NAME}] 消息 mesid=${mesid} 添加成功`);
+                addedCount++;
                 
             } catch (error) {
-                console.error(`${PLUGIN_NAME}: 添加消息时出错:`, error);
+                console.error(`[${PLUGIN_NAME}] 添加消息时出错:`, error);
             }
         }
         
-        console.log(`${PLUGIN_NAME}: 收藏消息填充完成`);
-        
-        // 添加提示系统消息
-        await previewContext.sendSystemMessage('这是收藏消息的预览。该聊天不会自动保存，仅用于查看收藏内容。');
+        // 显示成功消息
+        toastr.success(`已在预览聊天中显示 ${addedCount} 条收藏消息`);
         
     } catch (error) {
-        console.error(`${PLUGIN_NAME}: 填充预览聊天时出错:`, error);
-        throw error;
+        console.error(`[${PLUGIN_NAME}] 执行预览过程中发生错误:`, error);
+        toastr.error('创建预览聊天或填充消息时出错');
     }
 }
 
-/**
- * 从弹窗中删除收藏
- * @param {number} favId 收藏ID
- * @param {number|string} messageId 消息ID
- */
-async function handleDeleteFavoriteFromPopup(favId, messageId) {
-    const confirmed = await callPopup('确定要删除这条收藏吗？', 'confirm');
-    if (!confirmed) return;
-    
-    if (removeFavoriteById(favId)) {
-        // 更新消息上的图标
-        $(`.mes[mesid="${messageId}"] .favorite-toggle`)
-            .removeClass('active')
-            .find('i').css('color', 'var(--SmartThemeQuietColor)');
-        toastr.success('已删除收藏');
-    } else {
-        toastr.error('删除收藏失败');
-    }
-}
+// --- 初始化 ---
 
-/**
- * 编辑收藏备注
- * @param {number} favId 收藏ID
- */
-async function handleEditNote(favId) {
-    if (!ensureFavoritesArrayExists()) return;
-    
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-    
-    const favorite = favorites.items.find(item => item.id === favId);
-    if (!favorite) return;
-    
-    const note = await callPopup('输入备注:', 'input', favorite.note || '');
-    if (note !== false) {
-        if (updateFavoriteNote(favId, note)) {
-            toastr.success('已更新备注');
-        } else {
-            toastr.error('更新备注失败');
-        }
-    }
-}
-
-/**
- * 清理无效收藏
- */
-async function handleClearInvalidFavorites() {
-    if (!ensureFavoritesArrayExists()) return;
-    
-    const context = getContext();
-    const chatId = context.chatId;
-    const favorites = extension_settings[PLUGIN_NAME].chats[chatId];
-    
-    if (favorites.items.length === 0) {
-        toastr.info('没有收藏需要清理');
-        return;
-    }
-    
-    const confirmed = await callPopup('这将移除所有指向不存在消息的收藏。确定继续吗？', 'confirm');
-    if (!confirmed) return;
-    
-    let removedCount = 0;
-    const validItems = [];
-    
-    for (const item of favorites.items) {
-        const messageId = Number(item.messageId);
-        
-        // 检查消息是否存在
-        if (messageId < 0 || messageId >= chat.length || !chat[messageId]) {
-            removedCount++;
-            continue;
-        }
-        
-        validItems.push(item);
-    }
-    
-    if (removedCount > 0) {
-        favorites.items = validItems;
-        saveSettingsDebounced();
-        toastr.success(`已清理 ${removedCount} 条无效收藏`);
-    } else {
-        toastr.info('没有发现无效收藏');
-    }
-}
-
-// 初始化插件
 jQuery(async () => {
+    console.log(`[${PLUGIN_NAME}] 插件正在初始化...`);
+    
     try {
-        // 加载CSS文件
-        $('head').append(`<link rel="stylesheet" type="text/css" href="../extensions/third-party/${PLUGIN_NAME}/style.css">`);
+        // 注入CSS样式
+        const styleElement = document.createElement('style');
+        styleElement.innerHTML = `
+            /* Favorites popup styles */
+            .favorites-popup-content {
+                padding: 10px;
+                max-height: 70vh;
+                overflow-y: auto;
+            }
+
+            .favorites-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 0 10px;
+            }
+
+            .favorites-header h3 {
+                text-align: center;
+                margin: 0;
+            }
+
+            .favorites-divider {
+                height: 1px;
+                background-color: #ff3a3a;
+                margin: 10px 0;
+            }
+
+            .favorites-list {
+                margin: 10px 0;
+            }
+
+            .favorites-empty {
+                text-align: center;
+                color: #888;
+                padding: 20px;
+            }
+
+            .favorite-item {
+                border: 1px solid #444;
+                border-radius: 8px;
+                margin-bottom: 10px;
+                padding: 10px;
+                background-color: rgba(0, 0, 0, 0.2);
+                position: relative;
+            }
+
+            .fav-meta {
+                font-size: 0.8em;
+                color: #aaa;
+                margin-bottom: 5px;
+            }
+
+            .fav-note {
+                background-color: rgba(255, 255, 0, 0.1);
+                padding: 5px;
+                border-left: 3px solid #ffcc00;
+                margin-bottom: 5px;
+                font-style: italic;
+            }
+
+            .fav-preview {
+                margin-bottom: 5px;
+                line-height: 1.4;
+                max-height: 200px;
+                overflow-y: auto;
+                word-wrap: break-word;
+                white-space: pre-wrap;
+            }
+
+            .fav-preview.deleted {
+                color: #ff3a3a;
+                font-style: italic;
+                max-height: 200px;
+                overflow-y: auto;
+                word-wrap: break-word;
+                white-space: pre-wrap;
+            }
+
+            .fav-actions {
+                text-align: right;
+            }
+
+            .fav-actions i {
+                cursor: pointer;
+                margin-left: 10px;
+                padding: 5px;
+                border-radius: 50%;
+            }
+
+            .fav-actions i:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+
+            .fa-pencil {
+                color: #3a87ff;
+            }
+
+            .fa-trash {
+                color: #ff3a3a;
+            }
+
+            /* Star icon styles */
+            .favorite-toggle-icon {
+                cursor: pointer;
+            }
+
+            .favorite-toggle-icon i.fa-regular {
+                color: #999;
+            }
+
+            .favorite-toggle-icon i.fa-solid {
+                color: #ffcc00;
+            }
+        `;
+        document.head.appendChild(styleElement);
         
-        // 添加内联CSS以确保图标颜色正确
-        $('head').append(`
-            <style>
-                /* 确保收藏图标样式 */
-                .favorite-toggle i {
-                    color: var(--SmartThemeQuietColor) !important;
-                }
-                .favorite-toggle.active i {
-                    color: gold !important;
-                }
-            </style>
-        `);
-        
-        // 注入快捷按钮
-        const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${PLUGIN_NAME}`, 'input_button');
-        $('#data_bank_wand_container').append(inputButtonHtml);
-        
-        // 注入设置页面
+        // 注入插件界面到扩展设置页面
         const settingsHtml = await renderExtensionTemplateAsync(`third-party/${PLUGIN_NAME}`, 'settings_display');
         $('#extensions_settings').append(settingsHtml);
+        console.log(`[${PLUGIN_NAME}] 已添加设置界面到扩展页面`);
         
-        // 添加事件监听
-        $(document).on('click', '.favorite-toggle', handleFavoriteToggle);
-        $('#favorites_button').on('click', showFavoritesPopup);
+        // 添加收藏按钮到输入框右侧
+        const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${PLUGIN_NAME}`, 'input_button');
+        $('#data_bank_wand_container').append(inputButtonHtml);
+        console.log(`[${PLUGIN_NAME}] 已添加按钮到输入框右侧`);
         
-        // 定期更新收藏图标
-        setInterval(addFavoriteIconsToMessages, 1000);
+        // 绑定收藏按钮点击事件
+        $('#favorites_button').on('click', function() {
+            showFavoritesPopup();
+        });
         
-        // 监听消息渲染事件，更新收藏图标
+        // 使用事件委托绑定消息上收藏图标点击事件
+        $(document).on('click', '.favorite-toggle-icon', handleFavoriteToggle);
+        
+        // 监听聊天改变事件，刷新图标
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            addFavoriteIconsToMessages();
+        });
+        
+        // 监听新消息到达事件
         const handleNewMessage = () => {
             addFavoriteIconsToMessages();
-            refreshFavoriteIconsInView();
         };
         
-        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, handleNewMessage);
-        eventSource.on(event_types.USER_MESSAGE_RENDERED, handleNewMessage);
+        eventSource.on(event_types.MESSAGE_RECEIVED, handleNewMessage);
+        eventSource.on(event_types.MESSAGE_SENT, handleNewMessage);
         eventSource.on(event_types.MESSAGE_EDITED, handleNewMessage);
-        eventSource.on(event_types.MESSAGE_DELETED, handleNewMessage);
-        eventSource.on(event_types.CHAT_CHANGED, handleNewMessage);
         
-        console.log(`${PLUGIN_NAME}: 插件已初始化`);
+        // 初始化收藏图标
+        setTimeout(() => {
+            addFavoriteIconsToMessages();
+        }, 1000);
         
+        console.log(`[${PLUGIN_NAME}] 插件初始化完成!`);
     } catch (error) {
-        console.error(`${PLUGIN_NAME}: 初始化插件时出错:`, error);
+        console.error(`[${PLUGIN_NAME}] 初始化时出错:`, error);
     }
 });
