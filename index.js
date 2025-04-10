@@ -18,7 +18,7 @@ import { openGroupChat } from "../../../group-chats.js";
 import { renameChat } from "../../../../script.js";
 
 // 插件名称
-const PLUGIN_NAME = 'favorites-plugin';
+const PLUGIN_NAME = 'star2';
 
 /**
  * 初始化插件的必要数据结构
