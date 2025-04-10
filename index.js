@@ -216,6 +216,8 @@ function addFavoriteIconsToMessages() {
     
     // 刷新图标状态
     refreshFavoriteIconsInView();
+    
+    console.log(`[${PLUGIN_NAME}] 已为消息添加收藏图标`);
 }
 
 // 刷新视图中的收藏图标
@@ -527,10 +529,13 @@ async function handlePreviewButtonClick() {
         
         // 获取原始聊天消息
         const originalChat = [...chat];
+        console.log(`[${PLUGIN_NAME}] 原始聊天总消息数: ${originalChat.length}`);
         
         // 检查是否已经有预览聊天ID
         const previewKey = groupId ? `group_${groupId}` : `char_${characterId}`;
         const existingPreviewChatId = extension_settings[PLUGIN_NAME].previewChats[previewKey];
+        
+        let isFirstPreview = false;
         
         if (existingPreviewChatId) {
             console.log(`[${PLUGIN_NAME}] 发现现有预览聊天ID: ${existingPreviewChatId}`);
@@ -545,6 +550,7 @@ async function handlePreviewButtonClick() {
             }
         } else {
             console.log(`[${PLUGIN_NAME}] 未找到预览聊天ID，将创建新聊天`);
+            isFirstPreview = true;
             
             // 创建新聊天并切换
             await doNewChat({ deleteCurrentChat: false });
@@ -571,13 +577,16 @@ async function handlePreviewButtonClick() {
         }
         
         // 延迟一下确保聊天加载完成
-        await new Promise(resolve => setTimeout(resolve, 500));
+        const loadDelay = isFirstPreview ? 2000 : 1000; // 首次预览使用更长的延迟
+        console.log(`[${PLUGIN_NAME}] 等待 ${loadDelay}ms 确保聊天加载完成...`);
+        await new Promise(resolve => setTimeout(resolve, loadDelay));
         
         // 清空当前聊天
         console.log(`[${PLUGIN_NAME}] 清空当前聊天...`);
         clearChat();
         
         // 再次延迟，确保清空操作完成
+        console.log(`[${PLUGIN_NAME}] 等待300ms确保清空操作完成...`);
         await new Promise(resolve => setTimeout(resolve, 300));
         
         // 准备要填充的收藏消息
@@ -600,7 +609,7 @@ async function handlePreviewButtonClick() {
                     mesid: messageId
                 });
                 
-                console.log(`[${PLUGIN_NAME}] 已找到收藏消息 ID ${messageId}`);
+                console.log(`[${PLUGIN_NAME}] 已找到收藏消息 ID ${messageId}: ${originalChat[messageId].mes.substring(0, 30)}...`);
             } else {
                 console.warn(`[${PLUGIN_NAME}] 警告: 收藏消息 ID ${messageId} 不存在或已删除`);
             }
@@ -613,6 +622,7 @@ async function handlePreviewButtonClick() {
         
         // 获取当前上下文
         const newContext = getContext();
+        console.log(`[${PLUGIN_NAME}] 获取新的上下文完成，准备填充消息`);
         
         // 填充消息到聊天
         let addedCount = 0;
@@ -629,14 +639,23 @@ async function handlePreviewButtonClick() {
                     forceId: mesid
                 });
                 
-                // 在消息之间添加短暂延迟，确保顺序正确
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // 首条消息后添加更长延迟，特别是首次预览时
+                if (addedCount === 0) {
+                    const firstMessageDelay = isFirstPreview ? 1000 : 300;
+                    console.log(`[${PLUGIN_NAME}] 首条消息添加后等待 ${firstMessageDelay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, firstMessageDelay));
+                } else {
+                    // 在消息之间添加短暂延迟，确保顺序正确
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
                 
                 console.log(`[${PLUGIN_NAME}] 消息 mesid=${mesid} 添加成功`);
                 addedCount++;
                 
             } catch (error) {
                 console.error(`[${PLUGIN_NAME}] 添加消息时出错:`, error);
+                // 发生错误时暂停一下再继续
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
         
@@ -645,7 +664,7 @@ async function handlePreviewButtonClick() {
         
     } catch (error) {
         console.error(`[${PLUGIN_NAME}] 执行预览过程中发生错误:`, error);
-        toastr.error('创建预览聊天或填充消息时出错');
+        toastr.error('创建预览聊天或填充消息时出错，请查看控制台');
     }
 }
 
@@ -792,13 +811,21 @@ jQuery(async () => {
         
         // 监听聊天改变事件，刷新图标
         eventSource.on(event_types.CHAT_CHANGED, () => {
+            console.log(`[${PLUGIN_NAME}] 聊天已改变，添加收藏图标`);
             addFavoriteIconsToMessages();
         });
         
         // 监听新消息到达事件
         const handleNewMessage = () => {
+            console.log(`[${PLUGIN_NAME}] 检测到新消息，添加收藏图标`);
             addFavoriteIconsToMessages();
         };
+        
+        // 监听"显示更多消息"事件 - 修复第一个问题
+        eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
+            console.log(`[${PLUGIN_NAME}] 加载了更多消息，添加收藏图标`);
+            addFavoriteIconsToMessages();
+        });
         
         eventSource.on(event_types.MESSAGE_RECEIVED, handleNewMessage);
         eventSource.on(event_types.MESSAGE_SENT, handleNewMessage);
