@@ -12,7 +12,6 @@ import {
     clearChat,
     renameChat,
     openCharacterChat,
-    openGroupChat,
     is_send_press,
     isChatSaving,
     this_chid, // Needed for context checks maybe? getCurrentChatInfo is better
@@ -48,6 +47,7 @@ import { t } from '../../../i18n.js';
 // Import from group chats (as needed for checks)
 import {
     selected_group,
+    openGroupChat,
     is_group_generating
 } from '../../../group-chats.js';
 
