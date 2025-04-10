@@ -5,13 +5,13 @@ import {
     saveSettingsDebounced, 
     systemUserName, 
     chat, 
+    callPopup，
     clearChat,
     doNewChat,
     is_send_press,
     isChatSaving,
     this_chid
 } from "../../../../script.js";
-import { callPopup } from "../../../popup.js";
 import { selected_group, is_group_generating } from "../../../group-chats.js";
 import { openCharacterChat } from "../../../../script.js";
 import { openGroupChat } from "../../../group-chats.js";
