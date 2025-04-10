@@ -1385,14 +1385,14 @@ import {
     }
 
 
-        // --- Plugin Initialization ---
+
+    // --- Plugin Initialization ---
     jQuery(async () => {
         console.log(logPrefix, "Loading...");
         initializeSettings();
 
         // 1. Inject into Extensions Page (Plugin Overview)
         try {
-            // *** FIX: Revert path to correct format ***
             const settingsHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'settings_display');
             let $container = $('#extensions_settings');
              if (!$container.length) {
@@ -1401,33 +1401,43 @@ import {
              }
 
              if ($container.length) {
-                 // *** FIX: Simplify injection - Append the template directly ***
-                 // ASSUMPTION: templates/settings_display.html contains <div id="favorites-plugin-settings-area"></div>
+                 // Append the template containing the description drawer
                  $container.append(settingsHtml);
-                 console.log(logPrefix, `Appended settings template to ${$container.attr('id')}`);
+                 console.log(logPrefix, `Appended settings description template to ${$container.attr('id')}`);
 
-                 // Now renderPluginPage should find #settingsContainerId within the appended HTML
-                 renderPluginPage(currentPluginPagePage); // Initial render of the overview list
-                 setupPluginPageEventDelegation(); // Setup clicks for the list
+                 // *** FIX: Now, find the content area within the *appended* drawer and add our target container ***
+                 // Find the drawer content area within the just-added HTML
+                 const $drawerContent = $container.find('.inline-drawer-content').last(); // Find the last one added, just in case
+
+                 if ($drawerContent.length) {
+                     // Create and append the container for the chat list *inside* the drawer content
+                     $drawerContent.append(`<hr><h4 style="margin-top: 15px;">所有收藏的聊天:</h4><div id="${settingsContainerId}">Loading...</div>`);
+                     console.log(logPrefix, `Appended favorites list container (#${settingsContainerId}) inside the drawer content.`);
+
+                     // Now render the plugin page content into the newly created container
+                     renderPluginPage(currentPluginPagePage);
+                     setupPluginPageEventDelegation(); // Setup clicks for the list (delegated to the container)
+                 } else {
+                     console.error(logPrefix, `Could not find '.inline-drawer-content' within the appended settings template to inject the favorites list.`);
+                     toastr.error("无法注入收藏列表界面。");
+                 }
+
              } else {
                  console.error(logPrefix, "Could not find container (#extensions_settings or #translation_container) for settings UI.");
              }
         } catch (error) {
             console.error(logPrefix, "Failed to load or inject settings_display.html:", error);
-            toastr.error("无法加载插件设置界面。"); // Notify user
+            toastr.error("无法加载插件设置界面。");
         }
 
-        // 2. Inject Sidebar Button
+        // 2. Inject Sidebar Button (Keep previous fix)
         try {
-            // *** FIX: Revert path to correct format ***
             const sidebarButtonHtml = await renderExtensionTemplateAsync(`third-party/${pluginFolderName}`, 'sidebar_button');
-            // *** FIX: Revert target selector and method to original working version ***
-            const $buttonContainer = $('#data_bank_wand_container'); // Use the original target
+            const $buttonContainer = $('#data_bank_wand_container');
              if ($buttonContainer.length) {
                  $buttonContainer.append(sidebarButtonHtml);
                  console.log(logPrefix, "Added sidebar button to #data_bank_wand_container");
-                 // Add direct click listener for the sidebar button (moved inside success block)
-                 $(document).off('click', `#${sidebarButtonId}`).on('click', `#${sidebarButtonId}`, openFavoritesPopup); // Ensure handler is attached only once
+                 $(document).off('click', `#${sidebarButtonId}`).on('click', `#${sidebarButtonId}`, openFavoritesPopup);
              } else {
                  console.error(logPrefix, "Could not find container #data_bank_wand_container for sidebar button.");
                   toastr.error("无法找到侧边栏按钮的注入位置。");
@@ -1437,14 +1447,14 @@ import {
              toastr.error("无法加载收藏夹侧边栏按钮。");
         }
 
-        // 3. Setup Message Button Injection & Event Delegation (Keep as is)
-        injectOrUpdateFavoriteIcons(); // Initial injection for existing messages
-        // *** FIX: Ensure event handler is attached only once using .off().on() pattern ***
+        // 3. Setup Message Button Injection & Event Delegation (Keep previous fix)
+        injectOrUpdateFavoriteIcons();
         $(document).off('click', favIconSelector).on('click', favIconSelector, handleFavoriteToggle);
         console.log(logPrefix, `Set up event delegation for ${favIconSelector}`);
 
 
         // 4. Listen for SillyTavern events (Keep as is)
+        // ... (event listeners remain the same) ...
         eventSource.on(event_types.CHAT_UPDATED, () => {
              if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
@@ -1458,7 +1468,6 @@ import {
              if (!isInPreviewMode) { injectOrUpdateFavoriteIcons(); }
         });
         eventSource.on(event_types.CHAT_CHANGED, (newChatId) => {
-            // ... (Keep existing preview exit logic) ...
              if (isInPreviewMode) {
                  console.log(logPrefix, `Chat changed to ${newChatId} while in preview mode. Exiting preview...`);
                  toggleChatInteraction(false);
@@ -1469,15 +1478,20 @@ import {
              const previewMap = settings[previewChatMappingKey] || {};
              const isNewChatAPreview = Object.values(previewMap).includes(newChatId);
              if (!isNewChatAPreview) {
-                 injectOrUpdateFavoriteIcons(); // Update icons for the new non-preview chat
-             } else if (!isInPreviewMode) { // Landed in preview without flag set? Correct state.
+                 injectOrUpdateFavoriteIcons();
+             } else if (!isInPreviewMode) {
                  console.warn(logPrefix, `Landed in a preview chat (${newChatId}) but not in preview mode. Correcting state.`);
                  toggleChatInteraction(true);
                  isInPreviewMode = true;
              }
+             // Refresh the plugin page if it's visible in settings when chat changes? Optional.
+             if ($(`#${settingsContainerId}`).is(':visible')) {
+                 renderPluginPage(currentPluginPagePage);
+             }
         });
 
-        console.log(logPrefix, "Loaded successfully (with UI injection fixes).");
+
+        console.log(logPrefix, "Loaded successfully (with dynamic container injection).");
     });
 
 })(); // End IIFE
