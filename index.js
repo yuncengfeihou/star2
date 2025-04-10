@@ -6,7 +6,6 @@ import {
     getCurrentChatId,
     eventSource,
     event_types,
-    t,
     // messageFormatting,
     chat, // Need access to the current chat array for preview filling
     doNewChat, // To create the preview chat
@@ -48,6 +47,7 @@ import {
     is_group_generating, // Check group generation status
 } from '../../../group-chats.js';
 
+import { t } from '../../../i18n.js';
 
 // jQuery ($) is globally available
 
